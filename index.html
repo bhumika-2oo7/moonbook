@@ -96,3 +96,105 @@
   <footer>Phases are calculated in your browser with a mean synodic month of 29.53 days, so they can be off by up to about half a day.</footer>
 </main>
 
+<script>
+const SYN = 29.530588853;
+const REF = Date.UTC(2000, 0, 6, 18, 14); 
+
+const NAMES = ["New moon","Waxing crescent","First quarter","Waxing gibbous",
+               "Full moon","Waning gibbous","Last quarter","Waning crescent"];
+
+function moonAt(date) {
+  // use noon of the given day
+  const t = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12);
+  let age = ((t - REF) / 86400000) % SYN;
+  if (age < 0) age += SYN;
+  const p = age / SYN;
+  const illum = (1 - Math.cos(2 * Math.PI * p)) / 2;
+  const name = NAMES[Math.floor(((p * 8) + 0.5)) % 8];
+  return { age, p, illum, name };
+}
+
+function moonSVG(p, r = 40) {
+  const cx = 50, cy = 50, c = Math.cos(2 * Math.PI * p);
+  const rx = Math.abs(c) * r;
+  const waxing = p < 0.5;
+  const first = waxing ? 1 : 0;
+  const second = waxing ? (c > 0 ? 0 : 1) : (c > 0 ? 1 : 0);
+  const lit = `M ${cx} ${cy - r} A ${r} ${r} 0 0 ${first} ${cx} ${cy + r} A ${rx} ${r} 0 0 ${second} ${cx} ${cy - r} Z`;
+  return `<svg viewBox="0 0 100 100" role="img" aria-hidden="true">
+    <circle cx="50" cy="50" r="${r}" fill="var(--shade)"/>
+    <path d="${lit}" fill="var(--lit)"/>
+    <circle cx="50" cy="50" r="${r}" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/>
+  </svg>`;
+}
+
+const $ = id => document.getElementById(id);
+const key = d => `moonbook:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+const store = {
+  get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
+  set(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} }
+};
+
+const now = new Date();
+let view = new Date(now.getFullYear(), now.getMonth(), 1);
+let selected = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+function sameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function renderGrid() {
+  $("title").textContent = view.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const grid = $("grid");
+  grid.innerHTML = "";
+  ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].forEach(d => {
+    const e = document.createElement("div"); e.className = "dow"; e.textContent = d; grid.appendChild(e);
+  });
+  const first = new Date(view.getFullYear(), view.getMonth(), 1);
+  const lead = (first.getDay() + 6) % 7;
+  for (let i = 0; i < lead; i++) {
+    const e = document.createElement("div"); e.className = "day empty"; grid.appendChild(e);
+  }
+  const days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
+  for (let n = 1; n <= days; n++) {
+    const d = new Date(view.getFullYear(), view.getMonth(), n);
+    const m = moonAt(d);
+    const b = document.createElement("button");
+    b.className = "day" + (sameDay(d, now) ? " today" : "") + (sameDay(d, selected) ? " sel" : "");
+    b.setAttribute("aria-label", `${d.toDateString()}, ${m.name}, ${Math.round(m.illum * 100)}% lit`);
+    b.innerHTML = `<span class="n">${n}</span>${moonSVG(m.p)}<span class="dot ${store.get(key(d)) ? "on" : ""}"></span>`;
+    b.onclick = () => { selected = d; renderGrid(); renderDetail(); };
+    grid.appendChild(b);
+  }
+}
+
+function renderDetail() {
+  const m = moonAt(selected);
+  $("big").innerHTML = moonSVG(m.p);
+  $("dName").textContent = m.name;
+  $("dMeta").textContent =
+    `${selected.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · ` +
+    `${Math.round(m.illum * 100)}% lit · day ${Math.floor(m.age) + 1} of the cycle`;
+  $("note").value = store.get(key(selected));
+}
+
+$("note").addEventListener("input", e => {
+  store.set(key(selected), e.target.value.trim());
+  const dots = document.querySelectorAll(".day:not(.empty)");
+  const idx = selected.getDate() - (selected.getMonth() === view.getMonth() ? 1 : 0);
+  if (dots[idx]) dots[idx].querySelector(".dot").classList.toggle("on", !!e.target.value.trim());
+});
+$("prev").onclick = () => { view = new Date(view.getFullYear(), view.getMonth() - 1, 1); renderGrid(); };
+$("next").onclick = () => { view = new Date(view.getFullYear(), view.getMonth() + 1, 1); renderGrid(); };
+$("today").onclick = () => {
+  view = new Date(now.getFullYear(), now.getMonth(), 1);
+  selected = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  renderGrid(); renderDetail();
+};
+$("south").onchange = e => $("app").classList.toggle("south", e.target.checked);
+
+renderGrid();
+renderDetail();
+</script>
+</body>
+</html>
